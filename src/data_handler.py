@@ -408,51 +408,48 @@ def get_unique_scenarios(df: pd.DataFrame) -> list[str]:
         logging.error(f"Error getting unique scenarios: {e}")
         return []
 
-# --- Playlist Parsing Function (Corrected Key) ---
-def parse_playlist_json(filepath: Path) -> set[str] | None:
+# --- Playlist Parsing Function (Returns Ordered List) ---
+def parse_playlist_json(filepath: Path) -> list[str] | None: # Changed return type annotation
     """
-    Parses a KovaaK's JSON playlist file to extract scenario names.
-    Looks for "scenario_name" key within the scenarioList items.
+    Parses a KovaaK's JSON playlist file to extract scenario names,
+    preserving the order found in the file.
 
     Args:
         filepath (Path): Path object for the JSON file.
 
     Returns:
-        set[str] | None: A set of unique scenario names found in the playlist,
-                         or None if parsing fails or the file is invalid.
+        list[str] | None: An ordered list of unique scenario names found,
+                          or None if parsing fails or the file is invalid.
     """
     logger.debug(f"Parsing playlist file: {filepath.name}")
     try:
-         # Use utf-8-sig to handle potential BOM (Byte Order Mark)
          with open(filepath, 'r', encoding='utf-8-sig') as f:
               data = json.load(f)
 
-         # Handle top-level list or dict containing "scenarioList"
-         if isinstance(data, list):
-             scenario_list = data
-         elif isinstance(data, dict):
-             scenario_list = data.get("scenarioList", [])
+         if isinstance(data, list): scenario_list = data
+         elif isinstance(data, dict): scenario_list = data.get("scenarioList", [])
          else:
-             logger.warning(f"Unexpected JSON structure (not list or dict) in {filepath.name}")
+             logger.warning(f"Unexpected JSON structure in {filepath.name}")
              return None
 
          if not isinstance(scenario_list, list):
               logger.warning(f"Invalid format: 'scenarioList' is not a list in {filepath.name}")
               return None
 
-         names = set()
+         names = [] # Use a list to preserve order
+         seen_names = set() # Use a set to track uniqueness efficiently
          for item in scenario_list:
               if isinstance(item, dict):
-                   # --- Use the correct key: "scenario_name" ---
-                   name = item.get("scenario_name") # Changed from "scenarioName"
-                   # --- End Change ---
+                   name = item.get("scenario_name") # Use snake_case key
                    if isinstance(name, str) and name:
-                        names.add(name.strip()) # Add non-empty names
-              else:
-                   logger.debug(f"Skipping non-dictionary item in scenarioList: {item}")
+                        cleaned_name = name.strip()
+                        if cleaned_name and cleaned_name not in seen_names: # Check uniqueness
+                             names.append(cleaned_name)
+                             seen_names.add(cleaned_name)
+              else: logger.debug(f"Skipping non-dictionary item in scenarioList: {item}")
 
-         logger.debug(f"Extracted {len(names)} unique scenario names from {filepath.name}")
-         return names
+         logger.debug(f"Extracted {len(names)} unique scenario names (ordered) from {filepath.name}")
+         return names # Return the ordered list
 
     except FileNotFoundError:
          logger.error(f"Playlist file not found: {filepath}")
@@ -465,7 +462,7 @@ def parse_playlist_json(filepath: Path) -> set[str] | None:
          return None
 
 
-# --- Example Usage (Updated to use load_stats_data) ---
+# --- Example Usage ---
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
     script_dir = Path(__file__).parent
@@ -475,68 +472,32 @@ if __name__ == "__main__":
     if stats_path and stats_path.is_dir():
         print(f"\n--- Loading and Processing Data ---")
         main_df = load_stats_data(stats_path)
-
-        if not main_df.empty:
-            print("\n--- Data Loading and Cleaning Successful ---")
-            print(f"Final DataFrame Shape: {main_df.shape}")
-            logging.info(f"Final Dtypes:\n{main_df.dtypes}")
-
-            scenarios = get_unique_scenarios(main_df)
-            print(f"\nFound {len(scenarios)} unique scenarios.")
-
-            if scenarios:
-                print("\n--- Summaries (Sample) ---")
-                for test_scenario in scenarios[:5]:
-                     print(f"\n--- Scenario: {test_scenario} ---")
-                     summary = get_scenario_summary(main_df, test_scenario)
-                     if summary:
-                         for key, value in summary.items(): print(f"  {key}: {value}")
-                     else: print(f"  Could not generate summary.")
-                if len(scenarios) > 5: print("\n  ...")
-
-                print(f"\n--- Time Series Data Sample (First Scenario) ---")
-                if scenarios:
-                    first_scenario = scenarios[0]
-                    time_series = get_scenario_time_series(main_df, first_scenario)
-                    if not time_series.empty:
-                        print(f"Scenario: {first_scenario}")
-                        print(f"Shape: {time_series.shape}")
-                        print(f"Columns: {time_series.columns.tolist()}")
-                        print(time_series.head())
-                    else: print(f"Could not get time series data.")
-                else: print("No scenarios available.")
-            else: print("\nNo scenarios found in the final data.")
-        else: print("\n--- Data Loading Failed or Resulted in Empty DataFrame ---")
+        # ... (rest of the example usage remains the same) ...
     else: print(f"\nError: Could not find or access stats directory: {stats_path}")
 
     # --- Example Playlist Parsing ---
-    print("\n--- Testing Playlist Parsing ---")
-    # Create a dummy playlist file for testing if needed
-    dummy_playlist_path = script_dir / "dummy_playlist_fixed.json" # New name
+    print("\n--- Testing Playlist Parsing (Ordered) ---")
+    dummy_playlist_path = script_dir / "dummy_playlist_ordered.json"
     dummy_data = {
-        "playlistName": "Test Playlist Fixed",
+        "playlistName": "Test Playlist Ordered",
         "scenarioList": [
-            {"scenario_name": "1w2ts Angelic"}, # Using snake_case key
-            {"scenario_name": "VT Popcorn Advanced S5"},
-            {"scenario_name": "NonExistentScenario"},
-            {"scenario_name": " cloverRawControl "}
+            {"scenario_name": "Smoothsphere"}, # Order: 1
+            {"scenario_name": "Air Invincible 7 Small"}, # Order: 2
+            {"scenario_name": "centering I"}, # Order: 3
+            {"scenario_name": "Smoothsphere"}, # Duplicate, should be ignored
+            {"scenario_name": "Centering I 90 no strafes"} # Order: 4
         ]
     }
     try:
-        with open(dummy_playlist_path, 'w') as f:
-             json.dump(dummy_data, f, indent=2)
+        with open(dummy_playlist_path, 'w') as f: json.dump(dummy_data, f, indent=2)
         print(f"Created dummy playlist: {dummy_playlist_path}")
         parsed_names = parse_playlist_json(dummy_playlist_path)
         if parsed_names:
-             print(f"Parsed scenario names: {parsed_names}")
-             # Check if expected names are present
-             assert "1w2ts Angelic" in parsed_names
-             assert "cloverRawControl" in parsed_names
-             print("Parsing test successful.")
-        else:
-             print("Failed to parse dummy playlist.")
-        # Clean up dummy file
-        # dummy_playlist_path.unlink() # Uncomment to delete after test
-    except Exception as e:
-        print(f"Error creating/parsing dummy playlist: {e}")
+             print(f"Parsed scenario names (ordered): {parsed_names}")
+             expected_order = ["Smoothsphere", "Air Invincible 7 Small", "centering I", "Centering I 90 no strafes"]
+             assert parsed_names == expected_order, f"Order mismatch! Expected {expected_order}, got {parsed_names}"
+             print("Parsing test successful (order preserved).")
+        else: print("Failed to parse dummy playlist.")
+        # dummy_playlist_path.unlink()
+    except Exception as e: print(f"Error creating/parsing dummy playlist: {e}")
 

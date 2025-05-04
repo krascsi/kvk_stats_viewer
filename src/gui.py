@@ -57,8 +57,9 @@ class App(ctk.CTk):
         self.current_scenario = None
         self.current_time_series = pd.DataFrame()
         self.all_scenarios_after_date_filter = []
-        self.playlist_map = {}
-        self.playlist_scenarios = set()
+        # Playlist Data Structures
+        self.playlist_map = {} # Stores {playlist_name: [ordered_list_of_scenarios]} <-- Now a list!
+        self.playlist_scenarios = set() # Still a set for quick "is playlist active?" check
         self.active_playlist_names = []
 
         # --- Filter Variables ---
@@ -290,9 +291,9 @@ class App(ctk.CTk):
          """Clears scenario buttons and playlist headers."""
          logger.debug("Clearing scenario list UI elements.")
          for widget in self.scenario_scroll_frame.winfo_children():
-              if widget != self.no_matches_label: widget.destroy() # Destroy instead of forget
+              if widget != self.no_matches_label: widget.destroy()
          self.scenario_buttons = {}
-         self.playlist_header_labels = {} # Clear header labels too
+         self.playlist_header_labels = {}
 
     def _create_all_scenario_buttons(self):
         """Creates all CTkButton widgets based on self.all_scenarios_after_date_filter."""
@@ -357,18 +358,15 @@ class App(ctk.CTk):
         # Update Scenario List based on Filtered Data
         new_scenario_list = data_handler.get_unique_scenarios(self.filtered_stats_df) if not self.filtered_stats_df.empty else []
 
-        # Only recreate buttons if the list of available scenarios changed
-        # Compare sets for efficient check if content is the same regardless of order
         if set(new_scenario_list) != set(self.all_scenarios_after_date_filter):
              logger.info(f"Scenario list changed due to date filter. Found {len(new_scenario_list)} scenarios.")
              self.all_scenarios_after_date_filter = new_scenario_list
-             self._clear_scenario_list_ui() # Clear old buttons and headers
-             self._create_all_scenario_buttons() # Recreate buttons for the new list
-             self._filter_and_display_scenarios() # Display the list (applies search/playlist)
+             self._clear_scenario_list_ui()
+             self._create_all_scenario_buttons()
+             self._filter_and_display_scenarios()
              if clear_selection: self._clear_selection()
         elif filter_state_changed:
-             # Date filter state changed (e.g., invalid date removed) but content is same
-             self._filter_and_display_scenarios() # Reapply display filters
+             self._filter_and_display_scenarios()
              if clear_selection: self._clear_selection()
 
 
@@ -384,8 +382,7 @@ class App(ctk.CTk):
     def _filter_and_display_scenarios(self):
         """Filters the current scenario list (based on date/playlist) and displays."""
         search_term = self.search_var.get().lower()
-        # Use the list derived from the date-filtered data
-        base_scenario_list = self.all_scenarios_after_date_filter
+        base_scenario_list = self.all_scenarios_after_date_filter # Already date-filtered
         logger.debug(f"Filtering {len(base_scenario_list)} available scenarios with term: '{search_term}' and playlist filter: {bool(self.playlist_map)}")
         self._search_job = None
 
@@ -403,12 +400,11 @@ class App(ctk.CTk):
         logger.debug(f"Updating displayed scenario list. Search matches: {len(scenarios_matching_search)}. Playlist filter active: {bool(self.playlist_map)}")
 
         # Hide all widgets currently in the frame first
-        # This is simpler than trying to manage pack_forget for every widget individually
         all_widgets = list(self.playlist_header_labels.values()) + list(self.scenario_buttons.values()) + [self.no_matches_label]
         for widget in all_widgets:
             widget.pack_forget()
 
-        found_any_match = False # Track if any scenario is displayed overall
+        found_any_match = False
 
         if self.playlist_map: # --- Grouped by Playlist ---
             logger.debug(f"Displaying grouped by {len(self.playlist_map)} playlists.")
@@ -418,37 +414,35 @@ class App(ctk.CTk):
                       label = ctk.CTkLabel(self.scenario_scroll_frame, text=pl_name, font=ctk.CTkFont(weight="bold"), anchor="w")
                       self.playlist_header_labels[pl_name] = label
 
-            # Iterate through playlists and their scenarios
-            sorted_playlist_names = sorted(self.playlist_map.keys())
-            for pl_name in sorted_playlist_names:
-                 scenarios_in_playlist = self.playlist_map[pl_name]
-                 header_label = self.playlist_header_labels[pl_name]
-                 buttons_to_show_for_this_playlist = []
+            # Iterate through playlists *in the order they were loaded*
+            for pl_name in self.active_playlist_names: # Use the ordered list of names
+                 # Get the ordered list of scenarios for this playlist
+                 scenarios_in_playlist_ordered = self.playlist_map.get(pl_name, [])
+                 header_label = self.playlist_header_labels.get(pl_name)
+                 if not header_label: continue # Should exist, but safety check
 
-                 # Find buttons for this playlist that match filters
-                 for scenario in sorted(list(scenarios_in_playlist)):
+                 buttons_to_show_for_this_playlist = []
+                 # Find buttons for this playlist that match filters, maintaining order
+                 for scenario in scenarios_in_playlist_ordered: # Iterate through ordered list
                       if scenario in self.scenario_buttons and scenario in scenarios_matching_search:
                            buttons_to_show_for_this_playlist.append(self.scenario_buttons[scenario])
 
                  # If any buttons should be shown for this playlist, pack header then buttons
                  if buttons_to_show_for_this_playlist:
                       header_label.pack(pady=(5,1), padx=5, fill="x") # Pack header first
-                      for button in buttons_to_show_for_this_playlist:
-                           button.pack(pady=(1,0), padx=15, fill="x") # Pack buttons after header
+                      for button in buttons_to_show_for_this_playlist: # Pack buttons in order
+                           button.pack(pady=(1,0), padx=15, fill="x")
                       found_any_match = True
-                 # else: header_label remains hidden (pack_forget from start)
 
         else: # --- Ungrouped (No Playlist Filter) ---
             logger.debug("Displaying ungrouped list.")
-            # Show/hide based only on search term
-            # Iterate through the date-filtered list to maintain order
+            # Show/hide based only on search term, maintaining original sort order
             for scenario in self.all_scenarios_after_date_filter:
                  button = self.scenario_buttons.get(scenario)
                  if button:
                       if scenario in scenarios_matching_search:
                            button.pack(pady=(1,0), padx=5, fill="x")
                            found_any_match = True
-                      # else: button remains hidden (pack_forget from start)
 
         # Show "No matches" label if applicable
         if not found_any_match:
@@ -518,6 +512,8 @@ class App(ctk.CTk):
 
     def _update_plot(self):
         """Updates the Matplotlib plot based on current data and options."""
+        # --- Plotting logic remains the same ---
+        # ... (Include the full _update_plot method from the previous version here) ...
         time_series_df = self.current_time_series
         scenario_name = self.current_scenario
         logger.info(f"Updating plot for scenario: {scenario_name} with current options.")
@@ -626,7 +622,7 @@ class App(ctk.CTk):
 
         new_playlist_map = {}
         new_playlist_scenarios_union = set()
-        loaded_playlist_names = []
+        loaded_playlist_names = [] # Keep track of names in load order
         errors_occurred = False
 
         for fp_str in filepaths:
@@ -634,11 +630,15 @@ class App(ctk.CTk):
             playlist_name = fp.stem
             logger.debug(f"Parsing playlist file: {fp.name}")
             try:
-                scenarios = data_handler.parse_playlist_json(fp)
-                if scenarios is not None:
-                    if scenarios:
-                         new_playlist_map[playlist_name] = scenarios
-                         new_playlist_scenarios_union.update(scenarios)
+                # Returns an ORDERED LIST or None
+                scenarios_ordered = data_handler.parse_playlist_json(fp)
+                if scenarios_ordered is not None:
+                    if scenarios_ordered:
+                         # Store the ordered list in the map
+                         new_playlist_map[playlist_name] = scenarios_ordered
+                         # Add to the union set for quick checking
+                         new_playlist_scenarios_union.update(scenarios_ordered)
+                         # Add name to ordered list of loaded playlists
                          loaded_playlist_names.append(playlist_name)
                     else: logger.warning(f"Playlist file was empty or contained no scenarios: {fp.name}")
                 else: errors_occurred = True
@@ -652,14 +652,13 @@ class App(ctk.CTk):
              if not errors_occurred: self._clear_playlist_filter()
              return
 
-        self.playlist_map = new_playlist_map
-        self.playlist_scenarios = new_playlist_scenarios_union
-        self.active_playlist_names = loaded_playlist_names
+        self.playlist_map = new_playlist_map # Store map {name: [ordered_list]}
+        self.playlist_scenarios = new_playlist_scenarios_union # Store union set
+        self.active_playlist_names = loaded_playlist_names # Store ordered names
         logger.info(f"Loaded {len(self.playlist_scenarios)} unique scenarios from {len(self.active_playlist_names)} playlists.")
 
         self._update_playlist_filter_label()
         self.clear_filter_button.configure(state="normal")
-        # Refresh the displayed scenario list based on the new filter
         self._filter_and_display_scenarios()
         self._clear_selection()
 
