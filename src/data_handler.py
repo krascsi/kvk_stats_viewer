@@ -8,6 +8,7 @@ from datetime import datetime
 import logging
 import time # For parsing time strings like HH:MM:SS.fff
 import os # For creating log directory
+import json # For parsing playlist files
 
 # --- Configure Logging ---
 # Create logs directory if it doesn't exist
@@ -98,48 +99,28 @@ def parse_kovaaks_filename(filename):
             logging.warning(f"Filename '{file_name_only}' did not match expected KovaaK's pattern(s).")
             return None
 
-# --- Helper function to parse time string HH:MM:SS.fff (User Provided - REFINED) ---
+# --- Helper function to parse time string HH:MM:SS.fff (User Provided) ---
 def _parse_challenge_start_time(time_str):
-    """
-    Parses time string like '14:18:41.799' into seconds.
-    Handles potential errors more gracefully and logs input value.
-    """
-    logging.debug(f"Attempting to parse time string: '{time_str}' (Type: {type(time_str)})") # Log input value and type
-
+    """Parses time string like '14:18:41.799' into seconds."""
+    logging.debug(f"Attempting to parse time string: '{time_str}' (Type: {type(time_str)})")
     if not isinstance(time_str, str) or not time_str.strip():
         logging.warning(f"Invalid input for time parsing: Input is not a non-empty string.")
         return None
-
-    time_str = time_str.strip() # Ensure no leading/trailing whitespace
-
+    time_str = time_str.strip()
     try:
         parts = time_str.split(':')
         if len(parts) == 3:
-            # Attempt HH:MM:SS.fff format
             h_str, m_str, s_full_str = parts[0], parts[1], parts[2]
-
-            # Validate parts look like numbers before converting
-            if not (h_str.isdigit() and m_str.isdigit()):
-                 raise ValueError("Hour or minute part is not purely digits.")
-
+            if not (h_str.isdigit() and m_str.isdigit()): raise ValueError("Hour or minute part is not purely digits.")
             h, m = int(h_str), int(m_str)
-
-            # Handle seconds part (SS or SS.fff)
             s_parts = s_full_str.split('.')
-            s_str = s_parts[0]
-            ms_str = s_parts[1] if len(s_parts) > 1 else '0' # Default ms to '0'
-
-            if not (s_str.isdigit() and ms_str.isdigit()):
-                 raise ValueError("Second or millisecond part is not purely digits.")
-
-            s = int(s_str)
-            ms = int(ms_str.ljust(3, '0')[:3]) # Pad/truncate ms to 3 digits safely
-
+            s_str = s_parts[0]; ms_str = s_parts[1] if len(s_parts) > 1 else '0'
+            if not (s_str.isdigit() and ms_str.isdigit()): raise ValueError("Second or millisecond part is not purely digits.")
+            s = int(s_str); ms = int(ms_str.ljust(3, '0')[:3])
             total_seconds = h * 3600 + m * 60 + s + ms / 1000.0
             logging.debug(f"Parsed '{time_str}' as {total_seconds} seconds.")
             return total_seconds
         else:
-            # Fallback: Attempt parsing just as seconds if format is unexpected
             logging.debug(f"Time string '{time_str}' is not HH:MM:SS format, attempting float conversion.")
             try:
                 total_seconds = float(time_str)
@@ -147,9 +128,7 @@ def _parse_challenge_start_time(time_str):
                 return total_seconds
             except (ValueError, TypeError) as float_e:
                  raise ValueError(f"Input is not HH:MM:SS format and also failed float conversion: {float_e}")
-
     except (ValueError, TypeError, IndexError, AttributeError) as e:
-        # Log the *actual* input string that caused the error
         logging.warning(f"Could not parse time string '{time_str}'. Reason: {e}")
         return None
 
@@ -200,38 +179,27 @@ def parse_kovaaks_csv_content_kv_only(filepath):
                     if output_key not in found_keys and potential_key_part == csv_key:
                         raw_value = potential_value_part
                         try:
-                            # --- Conversion Logic ---
-                            converted_value = None # Initialize
-                            if convert_func == str:
-                                converted_value = raw_value
+                            converted_value = None
+                            if convert_func == str: converted_value = raw_value
                             else:
-                                # Handle percentage signs for numeric types
-                                if isinstance(raw_value, str) and '%' in raw_value:
-                                    if convert_func in (float, int):
-                                        raw_value = raw_value.replace('%', '')
-                                # Apply specific or general conversion
+                                if isinstance(raw_value, str) and '%' in raw_value and convert_func in (float, int):
+                                    raw_value = raw_value.replace('%', '')
                                 converted_value = convert_func(raw_value)
 
-                            # --- Store if conversion successful ---
-                            if converted_value is not None: # Check if conversion produced a value
+                            if converted_value is not None:
                                 extracted_stats[output_key] = converted_value
                                 found_keys.add(output_key)
                                 logging.debug(f"KV Parse: Found '{output_key}'='{converted_value}' from key '{csv_key}' in '{filepath.name}'")
                             else:
-                                # Log if conversion function returned None (e.g., _parse_challenge_start_time failed)
                                 logging.warning(f"KV Parse: Conversion function for key '{csv_key}' returned None for value '{raw_value}' in file '{filepath.name}'. Setting to None.")
-                                extracted_stats[output_key] = None # Explicitly set to None
-                                found_keys.add(output_key) # Mark as found even if None
-
+                                extracted_stats[output_key] = None
+                                found_keys.add(output_key)
                         except (ValueError, TypeError) as e:
-                            # Catch errors during the conversion function call (e.g., int('abc'))
                             logging.warning(f"KV Parse: Could not convert value '{raw_value}' for key '{csv_key}' in file '{filepath.name}'. Error: {e}. Setting to None.")
                             extracted_stats[output_key] = None
-                            found_keys.add(output_key) # Mark as found even if None
-
+                            found_keys.add(output_key)
                         matched = True
-                        break # Move to next row once a key is matched
-
+                        break
     except FileNotFoundError:
         logging.error(f"File not found: {filepath}")
         return {}
@@ -239,7 +207,6 @@ def parse_kovaaks_csv_content_kv_only(filepath):
         logging.error(f"Error reading or parsing key-values in file {filepath}: {e}", exc_info=True)
         return {}
     return extracted_stats
-
 
 # --- Combined File Parser (User Provided) ---
 def parse_kovaaks_stats_file(filepath):
@@ -277,8 +244,7 @@ def load_stats_data(stats_dir: Path | str) -> pd.DataFrame:
     csv_files = list(stats_dir.glob('*.csv'))
     logging.info(f"Found {len(csv_files)} CSV files.")
 
-    processed_count = 0
-    skipped_count = 0
+    processed_count = 0; skipped_count = 0
     for file_path in csv_files:
         logging.debug(f"Processing file: {file_path.name}")
         parsed_data = parse_kovaaks_stats_file(file_path)
@@ -332,21 +298,14 @@ def load_stats_data(stats_dir: Path | str) -> pd.DataFrame:
             if not aggregated_df[col].isnull().all():
                 logging.debug(f"Converting column '{col}' to numeric...")
                 if aggregated_df[col].dtype == 'object':
-                    # Handle potential commas before conversion
                     str_col = aggregated_df[col].astype(str).str.replace(',', '', regex=False)
                     aggregated_df[col] = str_col
-                # Convert to numeric, coercing errors
                 aggregated_df[col] = pd.to_numeric(aggregated_df[col], errors='coerce')
-                # Check for NaNs introduced by coercion
-                # Note: This check might be slightly off if original data had strings that become NaN
-                # A more precise check would compare before/after isnull().sum()
                 if aggregated_df[col].isna().any():
-                     failed_count = aggregated_df[col].isna().sum() - aggregated_df[col].isnull().sum() # Approx check
+                     failed_count = aggregated_df[col].isna().sum() - aggregated_df[col].isnull().sum()
                      if failed_count > 0:
                           logging.warning(f"Approx {failed_count} values in column '{col}' failed numeric conversion.")
-            else:
-                 # Ensure numeric type even if all null
-                 aggregated_df[col] = pd.to_numeric(aggregated_df[col], errors='coerce')
+            else: aggregated_df[col] = pd.to_numeric(aggregated_df[col], errors='coerce')
 
     # 3. Calculate 'Avg Accuracy'
     if 'Hit Count' in aggregated_df.columns and 'Miss Count' in aggregated_df.columns:
@@ -362,15 +321,13 @@ def load_stats_data(stats_dir: Path | str) -> pd.DataFrame:
             aggregated_df['Avg Accuracy'] = np.nan
     else:
         logging.warning("Cannot calculate 'Avg Accuracy': Hits/Misses columns missing.")
-        # Fallback logic
         if 'Avg Accuracy_Parsed' in aggregated_df.columns and aggregated_df['Avg Accuracy_Parsed'].notna().any():
              logging.info("Using 'Avg Accuracy_Parsed' as fallback.")
              aggregated_df['Avg Accuracy'] = aggregated_df['Avg Accuracy_Parsed']
         elif 'Accuracy_Parsed' in aggregated_df.columns and aggregated_df['Accuracy_Parsed'].notna().any():
              logging.info("Using 'Accuracy_Parsed' as fallback.")
              aggregated_df['Avg Accuracy'] = aggregated_df['Accuracy_Parsed']
-        else:
-             aggregated_df['Avg Accuracy'] = np.nan
+        else: aggregated_df['Avg Accuracy'] = np.nan
 
     aggregated_df.drop(columns=['Accuracy_Parsed', 'Avg Accuracy_Parsed'], errors='ignore', inplace=True)
 
@@ -395,6 +352,7 @@ def load_stats_data(stats_dir: Path | str) -> pd.DataFrame:
     logging.info(f"Cleaned & Aggregated DataFrame shape: {aggregated_df.shape}")
     logging.info(f"Final DataFrame columns: {aggregated_df.columns.tolist()}")
     return aggregated_df
+
 
 # --- Helper Functions (Operating on the final DataFrame) ---
 def get_scenario_summary(df: pd.DataFrame, scenario_name: str) -> dict | None:
@@ -450,11 +408,66 @@ def get_unique_scenarios(df: pd.DataFrame) -> list[str]:
         logging.error(f"Error getting unique scenarios: {e}")
         return []
 
+# --- Playlist Parsing Function (Corrected Key) ---
+def parse_playlist_json(filepath: Path) -> set[str] | None:
+    """
+    Parses a KovaaK's JSON playlist file to extract scenario names.
+    Looks for "scenario_name" key within the scenarioList items.
+
+    Args:
+        filepath (Path): Path object for the JSON file.
+
+    Returns:
+        set[str] | None: A set of unique scenario names found in the playlist,
+                         or None if parsing fails or the file is invalid.
+    """
+    logger.debug(f"Parsing playlist file: {filepath.name}")
+    try:
+         # Use utf-8-sig to handle potential BOM (Byte Order Mark)
+         with open(filepath, 'r', encoding='utf-8-sig') as f:
+              data = json.load(f)
+
+         # Handle top-level list or dict containing "scenarioList"
+         if isinstance(data, list):
+             scenario_list = data
+         elif isinstance(data, dict):
+             scenario_list = data.get("scenarioList", [])
+         else:
+             logger.warning(f"Unexpected JSON structure (not list or dict) in {filepath.name}")
+             return None
+
+         if not isinstance(scenario_list, list):
+              logger.warning(f"Invalid format: 'scenarioList' is not a list in {filepath.name}")
+              return None
+
+         names = set()
+         for item in scenario_list:
+              if isinstance(item, dict):
+                   # --- Use the correct key: "scenario_name" ---
+                   name = item.get("scenario_name") # Changed from "scenarioName"
+                   # --- End Change ---
+                   if isinstance(name, str) and name:
+                        names.add(name.strip()) # Add non-empty names
+              else:
+                   logger.debug(f"Skipping non-dictionary item in scenarioList: {item}")
+
+         logger.debug(f"Extracted {len(names)} unique scenario names from {filepath.name}")
+         return names
+
+    except FileNotFoundError:
+         logger.error(f"Playlist file not found: {filepath}")
+         return None
+    except json.JSONDecodeError as e:
+         logger.error(f"Invalid JSON format in {filepath.name}: {e}")
+         return None
+    except Exception as e:
+         logger.error(f"Error reading playlist {filepath.name}: {e}", exc_info=True)
+         return None
+
+
 # --- Example Usage (Updated to use load_stats_data) ---
 if __name__ == "__main__":
-    logging.getLogger().setLevel(logging.INFO) # Keep INFO for console
-    # logging.getLogger().setLevel(logging.DEBUG) # Uncomment for detailed file logs
-
+    logging.getLogger().setLevel(logging.INFO)
     script_dir = Path(__file__).parent
     stats_path = script_dir / "test_stats"
     print(f"Looking for test stats in: {stats_path}")
@@ -495,4 +508,35 @@ if __name__ == "__main__":
             else: print("\nNo scenarios found in the final data.")
         else: print("\n--- Data Loading Failed or Resulted in Empty DataFrame ---")
     else: print(f"\nError: Could not find or access stats directory: {stats_path}")
+
+    # --- Example Playlist Parsing ---
+    print("\n--- Testing Playlist Parsing ---")
+    # Create a dummy playlist file for testing if needed
+    dummy_playlist_path = script_dir / "dummy_playlist_fixed.json" # New name
+    dummy_data = {
+        "playlistName": "Test Playlist Fixed",
+        "scenarioList": [
+            {"scenario_name": "1w2ts Angelic"}, # Using snake_case key
+            {"scenario_name": "VT Popcorn Advanced S5"},
+            {"scenario_name": "NonExistentScenario"},
+            {"scenario_name": " cloverRawControl "}
+        ]
+    }
+    try:
+        with open(dummy_playlist_path, 'w') as f:
+             json.dump(dummy_data, f, indent=2)
+        print(f"Created dummy playlist: {dummy_playlist_path}")
+        parsed_names = parse_playlist_json(dummy_playlist_path)
+        if parsed_names:
+             print(f"Parsed scenario names: {parsed_names}")
+             # Check if expected names are present
+             assert "1w2ts Angelic" in parsed_names
+             assert "cloverRawControl" in parsed_names
+             print("Parsing test successful.")
+        else:
+             print("Failed to parse dummy playlist.")
+        # Clean up dummy file
+        # dummy_playlist_path.unlink() # Uncomment to delete after test
+    except Exception as e:
+        print(f"Error creating/parsing dummy playlist: {e}")
 

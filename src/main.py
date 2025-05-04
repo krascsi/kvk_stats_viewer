@@ -22,7 +22,7 @@ except ImportError:
 logger = logging.getLogger(__name__) # Get logger configured elsewhere (e.g., data_handler)
 
 # --- Profiling Configuration ---
-PROFILE_ENABLED = True # Set to False to disable profiling easily
+PROFILE_ENABLED = False # Set to False to disable profiling easily
 PROFILE_DIR = Path(__file__).parent.parent / "profiles" # Place profiles dir alongside src/logs
 PROFILE_FILENAME = "app_profile.prof"
 # Sort options: 'calls', 'cumulative', 'filename', 'pcalls', 'line', 'name', 'nfl', 'stdname', 'time'

@@ -6,6 +6,7 @@ from pathlib import Path
 import logging
 import pandas as pd
 import numpy as np
+import json # Needed for playlist parsing (though parsing logic moved)
 
 # --- Matplotlib Imports ---
 import matplotlib
@@ -17,10 +18,10 @@ from matplotlib.dates import DateFormatter
 
 # Import necessary functions from other modules
 try:
-    from . import data_handler
+    from . import data_handler # Import the whole module
     from . import utils
 except ImportError:
-    import data_handler
+    import data_handler # Import the whole module
     import utils
 
 logger = logging.getLogger(__name__)
@@ -53,12 +54,14 @@ class App(ctk.CTk):
         self.stats_df = pd.DataFrame()
         self.current_scenario = None
         self.current_time_series = pd.DataFrame()
-        self.all_scenarios = []
+        self.all_scenarios = [] # Full list from stats folder
+        self.playlist_scenarios = set() # Scenarios from loaded playlists
+        self.active_playlist_names = [] # Names of loaded playlists
 
         # --- Plotting Variables ---
         self.fig = None
         self.ax_score = None
-        self.ax_acc = None
+        self.ax_acc = None # Secondary Y-axis (Accuracy)
         self.canvas = None
         self.toolbar = None
 
@@ -69,11 +72,11 @@ class App(ctk.CTk):
         self.show_ma_score_var = tk.BooleanVar(value=True)
         self.show_ma_acc_var = tk.BooleanVar(value=True)
         self.show_pb_var = tk.BooleanVar(value=False)
-        self.show_std_dev_var = tk.BooleanVar(value=False)
+        # self.show_std_dev_var = tk.BooleanVar(value=False) # Removed Std Dev
 
         # --- Debounce Timers ---
-        self._redraw_job = None # For debouncing plot redraw
-        self._search_job = None # For debouncing search updates
+        self._redraw_job = None
+        self._search_job = None
 
         # Add listeners to redraw plot when options change
         trace_callback = self._redraw_plot_options_changed
@@ -82,7 +85,7 @@ class App(ctk.CTk):
         self.show_ma_score_var.trace_add("write", trace_callback)
         self.show_ma_acc_var.trace_add("write", trace_callback)
         self.show_pb_var.trace_add("write", trace_callback)
-        self.show_std_dev_var.trace_add("write", trace_callback)
+        # self.show_std_dev_var.trace_add("write", trace_callback) # Removed Std Dev
         self.ma_window_var.trace_add("write", trace_callback)
 
 
@@ -105,11 +108,13 @@ class App(ctk.CTk):
         # --- Top Frame ---
         self.top_frame = ctk.CTkFrame(self, corner_radius=5)
         self.top_frame.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="ew")
-        self.top_frame.grid_columnconfigure(1, weight=1)
+        self.top_frame.grid_columnconfigure(1, weight=1); self.top_frame.grid_columnconfigure(2, weight=0)
         self.browse_button = ctk.CTkButton(self.top_frame, text="Browse Stats Folder", command=self._browse_folder)
         self.browse_button.grid(row=0, column=0, padx=10, pady=10)
         self.path_label = ctk.CTkLabel(self.top_frame, text="No folder selected.", anchor="w", justify="left")
         self.path_label.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
+        self.load_playlist_button = ctk.CTkButton(self.top_frame, text="Load Playlist(s)", command=self._load_playlists)
+        self.load_playlist_button.grid(row=0, column=2, padx=10, pady=10)
 
         # --- Main Content Frame ---
         self.main_content_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
@@ -121,25 +126,29 @@ class App(ctk.CTk):
         # --- Left Frame (Scenario List & Search) ---
         self.left_frame = ctk.CTkFrame(self.main_content_frame, corner_radius=5)
         self.left_frame.grid(row=0, column=0, padx=(10, 5), pady=(5, 10), sticky="nsew")
-        self.left_frame.grid_rowconfigure(0, weight=0)
-        self.left_frame.grid_rowconfigure(1, weight=0) # Search bar row
-        self.left_frame.grid_rowconfigure(2, weight=1) # List expands
+        self.left_frame.grid_rowconfigure(0, weight=0); self.left_frame.grid_rowconfigure(1, weight=0)
+        self.left_frame.grid_rowconfigure(2, weight=0); self.left_frame.grid_rowconfigure(3, weight=1)
         self.left_frame.grid_columnconfigure(0, weight=1)
-
         self.scenario_label = ctk.CTkLabel(self.left_frame, text="Scenarios", font=ctk.CTkFont(weight="bold"))
         self.scenario_label.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="ew")
-
-        # Search Entry
         self.search_var = tk.StringVar()
         self.search_entry = ctk.CTkEntry(self.left_frame, textvariable=self.search_var, placeholder_text="Search scenarios...")
         self.search_entry.grid(row=1, column=0, padx=10, pady=(0, 5), sticky="ew")
-        # Bind key release event to DEBOUNCED filter function
-        self.search_entry.bind("<KeyRelease>", self._on_search_key_release) # Changed binding target
-
+        self.search_entry.bind("<KeyRelease>", self._on_search_key_release)
+        # Playlist Filter Display Area
+        self.playlist_filter_frame = ctk.CTkFrame(self.left_frame, fg_color="transparent")
+        self.playlist_filter_frame.grid(row=2, column=0, padx=10, pady=(0, 5), sticky="ew")
+        self.playlist_filter_frame.grid_columnconfigure(0, weight=1)
+        self.playlist_filter_label = ctk.CTkLabel(self.playlist_filter_frame, text="Filter: None", anchor="w", text_color="gray", font=ctk.CTkFont(size=11))
+        self.playlist_filter_label.grid(row=0, column=0, sticky="ew")
+        self.clear_filter_button = ctk.CTkButton(self.playlist_filter_frame, text="Clear", width=50, command=self._clear_playlist_filter, state="disabled")
+        self.clear_filter_button.grid(row=0, column=1, padx=(5,0))
         # Scrollable Frame for Scenario List
         self.scenario_scroll_frame = ctk.CTkScrollableFrame(self.left_frame, label_text="", fg_color="transparent")
-        self.scenario_scroll_frame.grid(row=2, column=0, padx=5, pady=(0, 5), sticky="nsew")
+        self.scenario_scroll_frame.grid(row=3, column=0, padx=5, pady=(0, 5), sticky="nsew")
         self.scenario_buttons = {}
+        self.no_matches_label = ctk.CTkLabel(self.scenario_scroll_frame, text=" No matching scenarios", anchor="w")
+        self.no_matches_label.pack_forget()
 
         # --- Right Frame (Stats Display & Plot Area) ---
         self.right_frame = ctk.CTkFrame(self.main_content_frame, corner_radius=5)
@@ -188,8 +197,6 @@ class App(ctk.CTk):
         self.raw_acc_check.grid(row=2, column=0, padx=10, pady=(2, 5), sticky="w")
         self.ma_acc_check = ctk.CTkCheckBox(self.plot_options_frame, text="Accuracy MA", variable=self.show_ma_acc_var)
         self.ma_acc_check.grid(row=2, column=1, padx=10, pady=(2, 5), sticky="w")
-        self.std_dev_check = ctk.CTkCheckBox(self.plot_options_frame, text="Score Std Dev", variable=self.show_std_dev_var)
-        self.std_dev_check.grid(row=2, column=2, padx=10, pady=(2, 5), sticky="w")
         # Plot Area
         self.plot_container_frame = ctk.CTkFrame(self.right_frame, fg_color="transparent")
         self.plot_container_frame.grid(row=2, column=0, rowspan=2, padx=10, pady=(0, 10), sticky="nsew")
@@ -197,7 +204,7 @@ class App(ctk.CTk):
         self.fig = Figure(figsize=(5, 4), dpi=100)
         self.ax_score = self.fig.add_subplot(111); self.ax_acc = self.ax_score.twinx()
         self.ax_score.set_xlabel("Date"); self.ax_score.set_ylabel("Score", color='cyan'); self.ax_score.tick_params(axis='y', labelcolor='cyan')
-        self.ax_acc.set_ylabel("Accuracy (%) / Std Dev", color='lime'); self.ax_acc.tick_params(axis='y', labelcolor='lime')
+        self.ax_acc.set_ylabel("Accuracy (%)", color='lime'); self.ax_acc.tick_params(axis='y', labelcolor='lime')
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_container_frame)
         self.canvas_widget = self.canvas.get_tk_widget(); self.canvas_widget.grid(row=1, column=0, sticky="nsew")
         self.toolbar_frame = ctk.CTkFrame(self.plot_container_frame, fg_color="#2b2b2b", corner_radius=0)
@@ -210,8 +217,6 @@ class App(ctk.CTk):
         logger.debug("Widgets created.")
 
     # --- Methods (_find_and_load_default_path, _browse_folder) ---
-    # Keep these methods as they were in the "No Default Load" version
-    # ... (Include the full code for these methods here) ...
     def _find_and_load_default_path(self):
         """Tries to find the default KovaaK's path and load data."""
         # This method is no longer called automatically on startup
@@ -239,18 +244,20 @@ class App(ctk.CTk):
             self.stats_folder_path = new_path
             logger.info(f"User selected folder: {self.stats_folder_path}")
             self.path_label.configure(text=str(self.stats_folder_path))
+            # Reset everything on new folder load
             self.stats_df = pd.DataFrame()
             self.current_scenario = None
             self.current_time_series = pd.DataFrame()
-            self.search_var.set("") # Clear search bar on new folder load
-            # self._update_scenario_list() # Will be called by _load_data
+            self.search_var.set("")
+            self._clear_playlist_filter(update_list=False)
+            self._clear_scenario_list_ui()
             self._clear_stats_display()
             self._clear_plot("Loading data...")
-            self._load_data() # Load data from the newly selected folder
+            self._load_data()
         else: logger.debug("Folder selection cancelled.")
 
     def _load_data(self):
-        """Loads and processes stats data from the selected folder."""
+        """Loads data and creates all scenario buttons initially."""
         if not self.stats_folder_path or not self.stats_folder_path.is_dir():
             logger.warning("Load data called with invalid path.")
             self.path_label.configure(text="Invalid folder selected. Please browse.")
@@ -261,75 +268,98 @@ class App(ctk.CTk):
         self.update_idletasks()
         try:
             self.stats_df = data_handler.load_stats_data(self.stats_folder_path)
-            self.all_scenarios = [] # Reset full list
+            self.all_scenarios = []
+            self._clear_scenario_list_ui()
+
             if self.stats_df.empty:
                 logger.warning("Loaded data is empty.")
                 messagebox.showwarning("No Data", "No valid KovaaK's stats files found or parsed in the selected folder.")
                 self._clear_plot("No data found")
+                self._filter_and_display_scenarios()
             else:
                 logger.info(f"Data loaded successfully. Shape: {self.stats_df.shape}")
-                # Get and store the full list of scenarios
                 self.all_scenarios = data_handler.get_unique_scenarios(self.stats_df)
+                logger.info(f"Found {len(self.all_scenarios)} unique scenarios. Creating buttons...")
+                self._create_all_scenario_buttons()
+                self._filter_and_display_scenarios()
                 self._clear_plot("Select a scenario")
-            # Update the list (will apply current search filter, which should be empty)
-            self._update_scenario_list()
+
         except Exception as e:
             logger.error(f"Error loading data: {e}", exc_info=True)
             messagebox.showerror("Loading Error", f"An error occurred while loading data:\n{e}")
             self.stats_df = pd.DataFrame()
             self.all_scenarios = []
-            self._update_scenario_list()
+            self._filter_and_display_scenarios()
             self._clear_plot("Error loading data")
         finally:
              self.browse_button.configure(state="normal", text="Browse Stats Folder")
 
+    def _clear_scenario_list_ui(self):
+         """Clears scenario buttons and resets related variables."""
+         logger.debug("Clearing scenario list UI elements.")
+         for widget in self.scenario_scroll_frame.winfo_children():
+              if widget != self.no_matches_label:
+                   widget.destroy()
+         self.scenario_buttons = {}
+
+    def _create_all_scenario_buttons(self):
+        """Creates all CTkButton widgets for scenarios but doesn't pack them."""
+        logger.debug(f"Creating {len(self.all_scenarios)} scenario buttons in memory.")
+        self.scenario_buttons = {}
+        for scenario in self.all_scenarios:
+            button = ctk.CTkButton(
+                self.scenario_scroll_frame, text=scenario,
+                command=lambda s=scenario: self._on_scenario_select(s),
+                anchor="w", fg_color="transparent",
+                text_color=("gray10", "gray90"), hover_color=("gray75", "gray25")
+            )
+            self.scenario_buttons[scenario] = button
+
     def _on_search_key_release(self, event=None):
         """Schedules a scenario list update after a short delay."""
-        # Cancel the previous job, if any
         if self._search_job:
             self.after_cancel(self._search_job)
-
-        # Schedule the update function to run after 300ms
-        self._search_job = self.after(300, self._update_scenario_list)
+        self._search_job = self.after(300, self._filter_and_display_scenarios)
         logger.debug("Search update scheduled.")
 
-
-    def _update_scenario_list(self):
-        """Populates the scenario list, filtering based on the search entry."""
+    def _filter_and_display_scenarios(self):
+        """Filters the full scenario list and calls display function."""
         search_term = self.search_var.get().lower()
-        logger.debug(f"Updating scenario list with filter: '{search_term}'")
-        self._search_job = None # Reset the job ID now that the function is running
+        logger.debug(f"Filtering scenarios with term: '{search_term}' and playlist filter: {bool(self.playlist_scenarios)}")
+        self._search_job = None
 
-        # Clear existing buttons/labels
-        for widget in self.scenario_scroll_frame.winfo_children():
-            widget.destroy()
-        self.scenario_buttons = {}
-
-        if not self.all_scenarios:
-            label_text = " Error loading scenarios" if not self.stats_df.empty else " No scenarios loaded"
-            label = ctk.CTkLabel(self.scenario_scroll_frame, text=label_text, anchor="w")
-            label.pack(pady=2, padx=5, fill="x")
-            return
-
-        # Filter the full list
-        scenarios_to_display = [
-            s for s in self.all_scenarios if search_term in s.lower()
-        ]
-        logger.info(f"Displaying {len(scenarios_to_display)} scenarios after filtering.")
-
-        if scenarios_to_display:
-            for scenario in scenarios_to_display:
-                button = ctk.CTkButton(
-                    self.scenario_scroll_frame, text=scenario,
-                    command=lambda s=scenario: self._on_scenario_select(s),
-                    anchor="w", fg_color="transparent",
-                    text_color=("gray10", "gray90"), hover_color=("gray75", "gray25")
-                )
-                button.pack(pady=(1,0), padx=5, fill="x")
-                self.scenario_buttons[scenario] = button
+        base_scenario_list = []
+        if self.playlist_scenarios:
+            base_scenario_list = [s for s in self.all_scenarios if s in self.playlist_scenarios]
+            logger.debug(f"{len(base_scenario_list)} scenarios after playlist filter.")
         else:
-             label = ctk.CTkLabel(self.scenario_scroll_frame, text=" No matching scenarios", anchor="w")
-             label.pack(pady=2, padx=5, fill="x")
+            base_scenario_list = self.all_scenarios
+
+        scenarios_to_display = [
+            s for s in base_scenario_list if search_term in s.lower()
+        ]
+        self._display_scenario_list(scenarios_to_display, bool(base_scenario_list))
+
+
+    def _display_scenario_list(self, scenarios_to_display: list, base_list_had_items: bool):
+        """Shows/Hides scenario buttons based on the provided list."""
+        logger.debug(f"Updating displayed scenario list ({len(scenarios_to_display)} items).")
+        self.no_matches_label.pack_forget()
+        found_match = False
+
+        for scenario, button in self.scenario_buttons.items():
+            if scenario in scenarios_to_display:
+                button.pack(pady=(1,0), padx=5, fill="x")
+                found_match = True
+            else:
+                button.pack_forget()
+
+        if not found_match:
+            if not base_list_had_items:
+                 self.no_matches_label.configure(text=" No scenarios loaded/found")
+            else:
+                 self.no_matches_label.configure(text=" No matching scenarios")
+            self.no_matches_label.pack(pady=2, padx=5, fill="x")
 
 
     def _on_scenario_select(self, scenario_name: str):
@@ -341,7 +371,7 @@ class App(ctk.CTk):
             summary = data_handler.get_scenario_summary(self.stats_df, scenario_name)
             self._update_stats_display(summary)
             self.current_time_series = data_handler.get_scenario_time_series(self.stats_df, scenario_name)
-            self._update_plot() # Initial plot for the selected scenario
+            self._update_plot()
         except Exception as e:
             logger.error(f"Error handling selection for '{scenario_name}': {e}", exc_info=True)
             messagebox.showerror("Error", f"Error processing scenario '{scenario_name}':\n{e}")
@@ -354,7 +384,6 @@ class App(ctk.CTk):
              try:
                  if self._redraw_job: self.after_cancel(self._redraw_job)
              except AttributeError: self._redraw_job = None
-             # Use a slightly shorter delay for plot options vs search
              self._redraw_job = self.after(100, self._update_plot)
              logger.debug("Plot redraw scheduled.")
 
@@ -383,7 +412,7 @@ class App(ctk.CTk):
         logger.debug(f"Clearing plot. Message: {message}")
         self.ax_score.clear(); self.ax_acc.clear()
         self.ax_score.set_xlabel("Date"); self.ax_score.set_ylabel("Score", color='cyan')
-        self.ax_acc.set_ylabel("Accuracy (%) / Std Dev", color='lime')
+        self.ax_acc.set_ylabel("Accuracy (%)", color='lime') # Reverted label
         self.ax_acc.tick_params(axis='y', labelcolor='lime')
         self.ax_score.tick_params(axis='y', labelcolor='cyan')
         self.ax_score.text(0.5, 0.5, message, ha='center', va='center', transform=self.ax_score.transAxes, fontsize=12, color='gray')
@@ -397,7 +426,7 @@ class App(ctk.CTk):
         time_series_df = self.current_time_series
         scenario_name = self.current_scenario
         logger.info(f"Updating plot for scenario: {scenario_name} with current options.")
-        self._redraw_job = None # Reset redraw job ID as it's running now
+        self._redraw_job = None
 
         # Pre-checks
         if time_series_df is None or time_series_df.empty:
@@ -414,7 +443,8 @@ class App(ctk.CTk):
         except ValueError: ma_window = 10; logger.warning("Invalid MA window, using 10.")
         show_raw_score = self.show_raw_score_var.get(); show_raw_acc = self.show_raw_acc_var.get()
         show_ma_score = self.show_ma_score_var.get(); show_ma_acc = self.show_ma_acc_var.get()
-        show_pb = self.show_pb_var.get(); show_std_dev = self.show_std_dev_var.get()
+        show_pb = self.show_pb_var.get()
+        # show_std_dev = self.show_std_dev_var.get() # Removed
 
         # Clear axes
         self.ax_score.clear(); self.ax_acc.clear()
@@ -422,7 +452,7 @@ class App(ctk.CTk):
         # Calculate Statistics
         min_periods = max(1, min(len(time_series_df), ma_window))
         score_ma = time_series_df['Score'].rolling(window=ma_window, min_periods=min_periods).mean() if show_ma_score else None
-        score_std_dev = time_series_df['Score'].rolling(window=ma_window, min_periods=min_periods).std() if show_std_dev else None
+        # score_std_dev = time_series_df['Score'].rolling(window=ma_window, min_periods=min_periods).std() if show_std_dev else None # Removed
         score_pb = time_series_df['Score'].cummax() if show_pb else None
         acc_ma = None
         if 'Avg Accuracy' in time_series_df.columns and show_ma_acc:
@@ -453,26 +483,20 @@ class App(ctk.CTk):
         if plot_accuracy_axis and show_ma_acc and acc_ma is not None:
              line, = self.ax_acc.plot(time_series_df['Timestamp'], acc_ma, ls='--', lw=1.5, c='#B2FF59', label=f'Acc MA({ma_window})')
              lines_acc_axis.append(line); labels_acc_axis.append(f'Acc MA({ma_window})'); acc_axis_data_list.append(acc_ma); acc_axis_lines_plotted = True
-        if show_std_dev and score_std_dev is not None:
-             line, = self.ax_acc.plot(time_series_df['Timestamp'], score_std_dev, ls=':', lw=1.5, c='#FFEE58', label=f'Score StdDev({ma_window})')
-             lines_acc_axis.append(line); labels_acc_axis.append(f'Score StdDev({ma_window})'); acc_axis_data_list.append(score_std_dev); acc_axis_lines_plotted = True
+        # Removed Std Dev Plotting
 
         # Configure Secondary Axis
         if acc_axis_lines_plotted:
-            y2_label = ""; acc_label_present = any('Acc' in label for label in labels_acc_axis); std_label_present = any('StdDev' in label for label in labels_acc_axis)
-            if acc_label_present: y2_label += "Accuracy (%)"
-            if std_label_present: y2_label += (" / " if y2_label else "") + "Score Std Dev"
-            self.ax_acc.set_ylabel(y2_label, color='lime'); self.ax_acc.tick_params(axis='y', labelcolor='lime'); self.ax_acc.grid(False)
+            self.ax_acc.set_ylabel("Accuracy (%)", color='lime'); self.ax_acc.tick_params(axis='y', labelcolor='lime'); self.ax_acc.grid(False)
             if acc_axis_data_list: # Set dynamic Y limits for secondary axis
                 full_acc_axis_data = pd.concat(acc_axis_data_list)
                 if full_acc_axis_data.notna().any():
                      min_val_a, max_val_a = full_acc_axis_data.min(), full_acc_axis_data.max()
-                     min_lim_a = max(0, min_val_a); max_lim_a = max_val_a
-                     if acc_label_present: max_lim_a = max(max_lim_a, 100)
+                     min_lim_a = max(0, min_val_a); max_lim_a = max(max_val_a, 100) # Ensure scale includes 0-100
                      padding_a = (max_lim_a - min_lim_a) * 0.05 if max_lim_a > min_lim_a else 1
                      self.ax_acc.set_ylim(min_lim_a - padding_a, max_lim_a + padding_a)
-                else: self.ax_acc.set_ylim(0, 1)
-            else: self.ax_acc.set_ylim(0, 1)
+                else: self.ax_acc.set_ylim(0, 105) # Default if no valid data
+            else: self.ax_acc.set_ylim(0, 105) # Default if no data plotted
         else: self.ax_acc.set_ylabel(""); self.ax_acc.set_yticks([])
 
         # Formatting
@@ -497,6 +521,80 @@ class App(ctk.CTk):
         # Redraw
         try: self.canvas.draw_idle(); logger.debug("Canvas redraw requested.")
         except Exception as e: logger.error(f"Error drawing canvas: {e}", exc_info=True)
+
+    # --- Playlist Methods ---
+    def _load_playlists(self):
+        """Opens file dialog to select JSON playlist files."""
+        logger.info("Opening playlist load dialog.")
+        filepaths = filedialog.askopenfilenames(
+            title="Select KovaaK's Playlist Files",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+        if not filepaths:
+            logger.debug("Playlist selection cancelled.")
+            return
+
+        new_playlist_scenarios = set()
+        loaded_playlist_names = []
+        errors_occurred = False
+
+        for fp_str in filepaths:
+            fp = Path(fp_str)
+            logger.debug(f"Parsing playlist file: {fp.name}")
+            try:
+                # Call the parsing function from data_handler
+                scenarios = data_handler.parse_playlist_json(fp) # Use function from data_handler
+                if scenarios is not None:
+                    new_playlist_scenarios.update(scenarios)
+                    loaded_playlist_names.append(fp.stem)
+                    if not scenarios:
+                         logger.warning(f"Playlist file was empty or contained no scenarios: {fp.name}")
+                else:
+                     errors_occurred = True
+            except Exception as e:
+                logger.error(f"Error calling parse_playlist_json for {fp.name}: {e}", exc_info=True)
+                errors_occurred = True
+
+        if errors_occurred:
+             messagebox.showerror("Playlist Error", "Error parsing one or more playlist files. Check logs for details.")
+
+        if not new_playlist_scenarios:
+             logger.warning("No scenarios found in any selected playlists.")
+             if not errors_occurred:
+                 self._clear_playlist_filter()
+             return
+
+        # Update internal state
+        self.playlist_scenarios = new_playlist_scenarios
+        self.active_playlist_names = loaded_playlist_names
+        logger.info(f"Loaded {len(self.playlist_scenarios)} scenarios from {len(loaded_playlist_names)} playlists.")
+
+        # Update UI
+        self._update_playlist_filter_label()
+        self.clear_filter_button.configure(state="normal")
+        self._filter_and_display_scenarios() # Refresh scenario list with filter applied
+
+    def _clear_playlist_filter(self, update_list=True):
+        """Clears the active playlist filter."""
+        logger.info("Clearing playlist filter.")
+        self.playlist_scenarios = set()
+        self.active_playlist_names = []
+        self._update_playlist_filter_label()
+        self.clear_filter_button.configure(state="disabled")
+        if update_list:
+             self._filter_and_display_scenarios() # Refresh scenario list
+
+    def _update_playlist_filter_label(self):
+        """Updates the label showing the active playlist filter."""
+        if self.active_playlist_names:
+            max_len = 40
+            names_str = ", ".join(self.active_playlist_names)
+            if len(names_str) > max_len:
+                 names_str = names_str[:max_len-3] + "..."
+            self.playlist_filter_label.configure(text=f"Filter: {names_str}")
+        else:
+            self.playlist_filter_label.configure(text="Filter: None")
+
 
 # --- Main Execution (in main.py) ---
 # if __name__ == "__main__":
