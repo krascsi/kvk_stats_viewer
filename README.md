@@ -126,18 +126,19 @@ If you prefer not to use `uv`, you can use Python's standard tools:
 5.  **Run:** Activate the environment (`source .venv/bin/activate`) and then run `python src/main.py`.
 
 ## Folder Structure
+
+```
 kvk_stats_viewer/
-├── .venv/                # Virtual environment directory
 ├── src/                  # Source code
-│   ├── init.py       # Package marker
+│   ├── __init__.py       # Package marker
 │   ├── main.py           # Main application entry point
 │   ├── gui.py            # GUI implementation (CTkinter, Matplotlib)
 │   ├── data_handler.py   # Data loading, parsing, aggregation
 │   └── utils.py          # Utility functions (e.g., path finding)
 ├── logs/                 # Runtime log files
 ├── profiles/             # Profiling output files
-├── .gitignore            # Git ignore rules
 └── README.md             # This file
+```
 
 ## Logging
 
