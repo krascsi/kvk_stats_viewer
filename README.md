@@ -107,7 +107,7 @@ This method is useful if you want to run multiple commands within the activated 
 
 If you prefer not to use `uv`, you can use Python's standard tools:
 
-1.  **Clone Repository:** `git clone <your-repository-url>` and `cd kvk-stats-viewer`.
+1.  **Clone Repository:** `git clone https://github.com/krascsi/kvk_stats_viewer` and `cd kvk-stats-viewer`.
 2.  **Create & Activate `venv`:**
     ```bash
     python -m venv .venv
