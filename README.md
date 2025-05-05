@@ -59,11 +59,6 @@ A graphical desktop application designed to load, analyze, and visualize your Ko
     ```bash
     uv pip install customtkinter pandas numpy matplotlib
     ```
-5.  **(Important Git Step) Configure `.gitignore`:** Ensure your virtual environment directory is ignored by Git. Add this line to your project's `.gitignore` file if it's not already there:
-    ```gitignore
-    # Python virtual environment
-    .venv/
-    ```
 
 ## Usage
 
