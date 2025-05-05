@@ -1,6 +1,3 @@
-Okay, here is a draft for the README.md file based on the structure and content of the provided Python files.
-
-```markdown
 # KovaaK's Stats Viewer
 
 ## Description
@@ -96,4 +93,3 @@ The application uses Python's `logging` module. Log messages (including errors a
 ## Profiling
 
 Performance profiling can be enabled/disabled by setting the `PROFILE_ENABLED` flag in `src/main.py`. When enabled, `cProfile` will run, and upon closing the application, raw profiling data (`.prof` file) will be saved in the `profiles/` directory, and a summary will be printed to the logs.
-```
