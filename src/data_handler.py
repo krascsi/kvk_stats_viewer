@@ -21,7 +21,7 @@ log_file_path = log_dir / "data_handler.log"
 
 # Get the root logger
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG) # Set root logger level to DEBUG
+logger.setLevel(logging.INFO) # Set root logger level to DEBUG
 
 # Clear existing handlers (important if re-running in same session)
 if logger.hasHandlers():
