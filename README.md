@@ -35,56 +35,109 @@ A graphical desktop application designed to load, analyze, and visualize your Ko
 ## Requirements
 
 * Python 3.x
-* Libraries:
+* The following Python Libraries:
     * `customtkinter`
     * `pandas`
     * `numpy`
     * `matplotlib`
+* `uv` (Recommended for installation and running) - See [uv installation guide](https://github.com/astral-sh/uv#installation).
 
-*(It is recommended to create a `requirements.txt` file)*
+## Installation (using uv)
 
-## Installation
-
-1.  **Clone or Download:** Get the source code.
+1.  **Install `uv`:** Follow the official [uv installation guide](https://github.com/astral-sh/uv#installation) if you haven't already.
+2.  **Clone Repository:** Get the source code.
     ```bash
     git clone <your-repository-url> # Or download the ZIP
     cd kvk-stats-viewer
     ```
-2.  **Install Dependencies:** (Assuming a `requirements.txt` file exists or is created)
+3.  **(Optional but Recommended) Create Virtual Environment:** While `uv run` can often manage this, creating it explicitly ensures it exists.
     ```bash
-    pip install -r requirements.txt
-    # Or install manually: pip install customtkinter pandas numpy matplotlib
+    # Creates a .venv directory by default
+    uv venv
+    ```
+4.  **Install Dependencies:** Use `uv` to install the required libraries into the virtual environment (`.venv` by default).
+    ```bash
+    uv pip install customtkinter pandas numpy matplotlib
+    ```
+5.  **(Important Git Step) Configure `.gitignore`:** Ensure your virtual environment directory is ignored by Git. Add this line to your project's `.gitignore` file if it's not already there:
+    ```gitignore
+    # Python virtual environment
+    .venv/
     ```
 
 ## Usage
 
-1.  **Run the Application:**
+There are two main ways to run the application:
+
+**Method 1: Using `uv run` (Recommended for Simplicity)**
+
+This command attempts to automatically find or create the virtual environment, use the installed packages within it, and execute the script.
+
+1.  Navigate to the project's root directory (`kvk-stats-viewer`).
+2.  Execute:
+    ```bash
+    uv run python src/main.py
+    ```
+
+**Method 2: Manual Virtual Environment Activation**
+
+This method is useful if you want to run multiple commands within the activated environment or prefer the traditional approach.
+
+1.  Navigate to the project's root directory.
+2.  Activate the virtual environment:
+    ```bash
+    # Linux/macOS:
+    source .venv/bin/activate
+    # Windows (Command Prompt/PowerShell):
+    # .\.venv\Scripts\activate
+    ```
+    *(Your terminal prompt should change to indicate the active environment, e.g., `(.venv) ...`)*
+3.  Run the Python script directly:
     ```bash
     python src/main.py
     ```
-2.  **Select Stats Folder:** When the application starts, it will attempt to find your KovaaK's stats folder. If not found, or if you want to use a different folder, click the "Browse Stats Folder" button.
-3.  **Explore:**
-    * Use the search bar or load playlists to filter scenarios.
-    * Click on a scenario name in the left panel to view its statistics and performance plot.
-    * Use the plot options to customize the graph.
-    * Set a "Start Date" to filter data shown for all scenarios.
+4.  Deactivate the environment when finished (optional):
+    ```bash
+    deactivate
+    ```
+
+---
+
+*After starting the application using either method:*
+
+* **Select Stats Folder:** When the application starts, it will attempt to find your KovaaK's stats folder. If not found, or if you want to use a different folder, click the "Browse Stats Folder" button.
+* **Explore:** Use the search bar, load playlists, click scenarios, customize the plot, and filter by date.
+
+## (Alternative) Installation using `venv` + `pip`
+
+If you prefer not to use `uv`, you can use Python's standard tools:
+
+1.  **Clone Repository:** `git clone <your-repository-url>` and `cd kvk-stats-viewer`.
+2.  **Create & Activate `venv`:**
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate  # Or Windows equivalent
+    ```
+3.  **Install Dependencies Manually:**
+    ```bash
+    pip install customtkinter pandas numpy matplotlib
+    ```
+4.  **Configure `.gitignore`:** Add `.venv/` to your `.gitignore`.
+5.  **Run:** Activate the environment (`source .venv/bin/activate`) and then run `python src/main.py`.
 
 ## Folder Structure
-
-```
 kvk_stats_viewer/
+├── .venv/                # Virtual environment directory
 ├── src/                  # Source code
-│   ├── __init__.py       # Package marker
+│   ├── init.py       # Package marker
 │   ├── main.py           # Main application entry point
 │   ├── gui.py            # GUI implementation (CTkinter, Matplotlib)
 │   ├── data_handler.py   # Data loading, parsing, aggregation
 │   └── utils.py          # Utility functions (e.g., path finding)
 ├── logs/                 # Runtime log files
 ├── profiles/             # Profiling output files
-├── hello.py              # Simple script
-├── requirements.txt      # Project dependencies (Recommended)
+├── .gitignore            # Git ignore rules
 └── README.md             # This file
-```
 
 ## Logging
 
